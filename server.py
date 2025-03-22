@@ -10,7 +10,7 @@ import pytz
 import asyncio
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
-from pytubefix import YouTube, exceptions  # Menggunakan pytubefix sebagai pengganti pytube
+from pytubefix import YouTube, exceptions  # Gunakan pytubefix sebagai pengganti pytube
 import re
 import httpx
 from urllib.error import HTTPError
@@ -19,7 +19,7 @@ from pydub import AudioSegment
 
 # Konfigurasi logging
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
@@ -151,6 +151,10 @@ def extract_video_id(url):
 
 ALLOWED_VIDEO_RESOLUTIONS = {"144p", "240p", "360p", "480p", "720p", "1080p"}
 
+def merge_video_audio(video_file, audio_file, output_file):
+    cmd = ['ffmpeg', '-y', '-i', video_file, '-i', audio_file, '-c:v', 'copy', '-c:a', 'aac', output_file]
+    subprocess.run(cmd, capture_output=True, check=True)
+
 # Fungsi konversi ke MP3 menggunakan pydub
 def convert_to_mp3(file_path):
     base, ext = os.path.splitext(file_path)
@@ -166,15 +170,26 @@ def convert_to_mp3(file_path):
             return file_path
     return file_path
 
+# Fungsi retry untuk get_video_info
+async def get_video_info_with_retry(url, retries=3):
+    for attempt in range(retries):
+        info = await get_video_info(url)
+        if info and "error" not in info:
+            return info
+        logger.warning(f"Attempt {attempt+1} gagal mendapatkan video info. Retrying...")
+        await asyncio.sleep(1)
+    return info
+
 # Helper: Ambil video info berdasarkan video ID
 async def get_video_info_by_id(video_id):
     url = f"https://youtu.be/{video_id}"
-    return await get_video_info(url)
+    return await get_video_info_with_retry(url)
 
 async def get_video_info(url):
     try:
         video_id = extract_video_id(url)
         logger.info(f"Attempting to get info for video ID: {video_id}")
+        # Gunakan opsi use_po_token dan client untuk menghindari deteksi bot
         yt = YouTube(url, use_po_token=True, client="WEB")
         audio_streams = yt.streams.filter(only_audio=True).order_by('abr').desc()
         audio_options = []
@@ -237,7 +252,7 @@ async def download_youtube(url, itag, format_type, user_id, log_id, ptype="prog"
     try:
         video_id = extract_video_id(url)
         logger.info(f"Downloading video ID: {video_id} with itag: {itag}")
-        yt = YouTube(url)
+        yt = YouTube(url, use_po_token=True, client="WEB")
         # Gunakan direktori temporary
         temp_dir = tempfile.mkdtemp()
         if format_type == 'video' and ptype == 'adapt':
@@ -247,7 +262,7 @@ async def download_youtube(url, itag, format_type, user_id, log_id, ptype="prog"
                 logger.error(error_msg)
                 update_log_status(log_id, "failed", error_msg)
                 shutil.rmtree(temp_dir)
-                return None
+                return None, None
             video_path = video_stream.download(output_path=temp_dir, filename_prefix="video_")
             audio_stream = yt.streams.filter(only_audio=True).order_by('abr').desc().first()
             if not audio_stream:
@@ -255,15 +270,14 @@ async def download_youtube(url, itag, format_type, user_id, log_id, ptype="prog"
                 logger.error(error_msg)
                 update_log_status(log_id, "failed", error_msg)
                 shutil.rmtree(temp_dir)
-                return None
+                return None, None
             audio_path = audio_stream.download(output_path=temp_dir, filename_prefix="audio_")
             output_path = os.path.join(temp_dir, f"{yt.title}_{video_id}.mp4")
             merge_video_audio(video_path, audio_path, output_path)
-            # Hapus file video dan audio sementara
             os.remove(video_path)
             os.remove(audio_path)
             update_log_status(log_id, "completed")
-            # Jangan hapus temp_dir, file output_path berada di sana; kita akan hapus temp_dir setelah pengiriman file
+            # Kembalikan file_path dan temp_dir supaya bisa dihapus setelah pengiriman
             return output_path, temp_dir
         else:
             stream = yt.streams.get_by_itag(itag)
@@ -366,7 +380,7 @@ async def url_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         await update.message.reply_text("🔍 Mengambil informasi video... Mohon tunggu sebentar.")
-        video_info = await get_video_info(url)
+        video_info = await get_video_info_with_retry(url, retries=3)
         if not video_info:
             update_log_status(log_id, "failed_to_get_info", "Tidak dapat mengambil informasi video")
             await update.message.reply_text("❌ Gagal mendapatkan informasi video. Silakan coba lagi nanti atau gunakan URL lain.")
