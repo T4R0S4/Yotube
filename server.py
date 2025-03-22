@@ -189,8 +189,16 @@ async def get_video_info(url):
     try:
         video_id = extract_video_id(url)
         logger.info(f"Attempting to get info for video ID: {video_id}")
-        # Inisialisasi YouTube tanpa parameter po_token
-        yt = YouTube(url, use_po_token=True, client="WEB")
+        # Coba terlebih dahulu dengan client WEB dan use_po_token True
+        try:
+            yt = YouTube(url, use_po_token=True, client="WEB")
+        except Exception as e:
+            # Jika terjadi error EOF atau error lainnya, fallback ke client ANDROID
+            if "EOF" in str(e) or "bot" in str(e).lower():
+                logger.warning("Client WEB gagal, mencoba fallback ke client ANDROID")
+                yt = YouTube(url, client="ANDROID")
+            else:
+                raise e
         audio_streams = yt.streams.filter(only_audio=True).order_by('abr').desc()
         audio_options = []
         for stream in audio_streams:
@@ -252,7 +260,15 @@ async def download_youtube(url, itag, format_type, user_id, log_id, ptype="prog"
     try:
         video_id = extract_video_id(url)
         logger.info(f"Downloading video ID: {video_id} with itag: {itag}")
-        yt = YouTube(url, use_po_token=True, client="WEB")
+        # Gunakan fallback seperti di get_video_info
+        try:
+            yt = YouTube(url, use_po_token=True, client="WEB")
+        except Exception as e:
+            if "EOF" in str(e) or "bot" in str(e).lower():
+                logger.warning("Client WEB gagal, mencoba fallback ke client ANDROID")
+                yt = YouTube(url, client="ANDROID")
+            else:
+                raise e
         # Buat direktori temporary
         temp_dir = tempfile.mkdtemp()
         if format_type == 'video' and ptype == 'adapt':
