@@ -175,7 +175,7 @@ async def get_video_info(url):
     try:
         video_id = extract_video_id(url)
         logger.info(f"Attempting to get info for video ID: {video_id}")
-        yt = YouTube(url)
+        yt = YouTube(url, use_po_token=True)
         audio_streams = yt.streams.filter(only_audio=True).order_by('abr').desc()
         audio_options = []
         for stream in audio_streams:
