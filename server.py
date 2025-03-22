@@ -151,6 +151,10 @@ def extract_video_id(url):
 
 ALLOWED_VIDEO_RESOLUTIONS = {"144p", "240p", "360p", "480p", "720p", "1080p"}
 
+def merge_video_audio(video_file, audio_file, output_file):
+    cmd = ['ffmpeg', '-y', '-i', video_file, '-i', audio_file, '-c:v', 'copy', '-c:a', 'aac', output_file]
+    subprocess.run(cmd, capture_output=True, check=True)
+
 # Fungsi konversi ke MP3 menggunakan pydub
 def convert_to_mp3(file_path):
     base, ext = os.path.splitext(file_path)
@@ -165,23 +169,6 @@ def convert_to_mp3(file_path):
             logger.error(f"Error converting to mp3: {str(e)}")
             return file_path
     return file_path
-
-# Fungsi untuk mendapatkan token PO menggunakan youtube-po-token-generator
-def get_po_token():
-    try:
-        # Pastikan file po_token_generator.py ada di repository Anda
-        result = subprocess.run(
-            ["python", "po_token_generator.py"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        token = result.stdout.strip()
-        logger.info(f"Token PO berhasil didapatkan: {token}")
-        return token
-    except Exception as e:
-        logger.error(f"Error getting PO token: {str(e)}")
-        return ""
 
 # Fungsi retry untuk get_video_info
 async def get_video_info_with_retry(url, retries=3):
@@ -202,9 +189,8 @@ async def get_video_info(url):
     try:
         video_id = extract_video_id(url)
         logger.info(f"Attempting to get info for video ID: {video_id}")
-        # Gunakan token PO yang didapatkan dari po_token_generator
-        po_token = get_po_token()
-        yt = YouTube(url, use_po_token=True, client="WEB", po_token=po_token)
+        # Inisialisasi YouTube tanpa parameter po_token
+        yt = YouTube(url, use_po_token=True, client="WEB")
         audio_streams = yt.streams.filter(only_audio=True).order_by('abr').desc()
         audio_options = []
         for stream in audio_streams:
@@ -266,8 +252,7 @@ async def download_youtube(url, itag, format_type, user_id, log_id, ptype="prog"
     try:
         video_id = extract_video_id(url)
         logger.info(f"Downloading video ID: {video_id} with itag: {itag}")
-        po_token = get_po_token()
-        yt = YouTube(url, use_po_token=True, client="WEB", po_token=po_token)
+        yt = YouTube(url, use_po_token=True, client="WEB")
         # Buat direktori temporary
         temp_dir = tempfile.mkdtemp()
         if format_type == 'video' and ptype == 'adapt':
